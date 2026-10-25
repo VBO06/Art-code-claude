@@ -1,8 +1,9 @@
 """Les deux photos de Ouagadougou dans les 4 styles validés au fil de la série.
 
-    python3 essais.py      -> output/la/essais/*.png + planche.jpg
+    python3 essais.py      -> output/la/essais/#50-#57 (image + affiche) + planche.jpg
 """
 import os
+import unicodedata
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -21,7 +22,7 @@ PHOTOS = dict(
 RED = dict(porteuse=(0.38, 0.14, 0.62, 0.96), camion=(0.38, 0.07, 0.66, 0.48))
 
 
-def geneve(a, rng, key):
+def voiles(a, rng, key):
     """Comme #28-#30: couleurs d'origine, coulures, rectangles translucides."""
     a = m.grade(a, 1.15, 1.15)
     m.pixel_sort(a, rng, 8, 0.5, 0.92, area=(0, 0, 1, 0.45))
@@ -63,8 +64,18 @@ def origine(a, rng, key):
     return la.grain(a * 0.8 + d * 0.2, rng, 0.05)
 
 
-STYLES = dict(geneve=geneve, serie_la=series_la, sacre=sacre, origine=origine)
-NAMES = dict(geneve="1 · GENÈVE", serie_la="2 · SÉRIE LA", sacre="3 · SACRÉ", origine="4 · ORIGINE")
+STYLES = dict(voiles=voiles, serie_la=series_la, sacre=sacre, origine=origine)
+TITLES = {
+    ("porteuse", "voiles"): (52, "POUSSIÈRE", "PIXEL SORT / VOILES"),
+    ("camion", "voiles"): (53, "ROUTE", "PIXEL SORT / VOILES"),
+    ("porteuse", "serie_la"): (54, "BRÛLURE", "IMAGE THERMIQUE"),
+    ("camion", "serie_la"): (55, "VITESSE II", "SLIT-SCAN / CHROMA"),
+    ("porteuse", "sacre"): (56, "PORTEUSE", "TRAME / UN ROUGE"),
+    ("camion", "sacre"): (57, "DEBOUT", "TRAME / UN ROUGE"),
+    ("porteuse", "origine"): (58, "MARCHE", "GLITCH / NOIR ET BLANC"),
+    ("camion", "origine"): (59, "FANTÔME", "GLITCH / NOIR ET BLANC"),
+}
+NAMES = dict(voiles="1 · VOILES", serie_la="2 · SÉRIE LA", sacre="3 · SACRÉ", origine="4 · ORIGINE")
 
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)
@@ -77,7 +88,12 @@ if __name__ == "__main__":
         for i, (key, load) in enumerate(PHOTOS.items()):
             a = fn(load(), np.random.default_rng(6000 + 10 * j + i), key)
             img = Image.fromarray((np.clip(a, 0, 1) * 255).astype(np.uint8))
-            img.save(os.path.join(OUT, f"{key}-{style}.png"), optimize=True)
+            num, title, note = TITLES[key, style]
+            slug = unicodedata.normalize("NFKD", title.split()[0].lower()).encode("ascii", "ignore").decode()
+            stem = os.path.join(OUT, f"{num}-{slug}")
+            img.save(stem + ".png", optimize=True)
+            la.poster(a, str(num), title, "OUAGADOUGOU", "12.37° N  1.52° W", note).save(
+                stem + "-affiche.png", optimize=True)
             sheet.paste(img.resize((t, t)), (j * t, 60 + i * t))
     sheet.save(os.path.join(OUT, "planche.jpg"), quality=90)
     print(OUT)
