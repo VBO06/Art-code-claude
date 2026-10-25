@@ -204,7 +204,56 @@ def arc():
     save(a, "23-arc", "DROITS RÉSERVÉS #23  ·  ARC")
 
 
-PIECES = dict(grille=grille, arc=arc, trame=trame, neige=neige)
+def censor(a, box, b=22):
+    """Pixellise une zone précise (enseignes, logos): la marque disparaît dans le glitch."""
+    x0, y0, x1, y1 = int(box[0] * W) // b * b, int(box[1] * H) // b * b, int(box[2] * W), int(box[3] * H)
+    w, h = max(b, (x1 - x0) // b * b + b), max(b, (y1 - y0) // b * b + b)
+    blk = a[y0:y0 + h, x0:x0 + w]
+    m = blk.reshape(h // b, b, w // b, b, 3).mean((1, 3))
+    blk[:] = np.repeat(np.repeat(m, b, 0), b, 1)
+
+
+def arve():
+    """La rivière au crépuscule: les nuages coulent sur la montagne, l'eau file en stries."""
+    rng = np.random.default_rng(808)
+    a = grade(load("14.jpg"), 1.15, 1.1)
+    pixel_sort(a, rng, 7, 0.65, 0.95, area=(0, 0.15, 1, 0.42))
+    pixel_sort(a, rng, 18, 0.35, 0.8, vertical=False, area=(0.15, 0.56, 1, 1))
+    smear(a, rng, 10, vertical=False, area=(0.15, 0.6, 1, 1))
+    slices(a, rng, 5, 40, area=(0, 0.55, 1, 1))
+    a = grain(a, rng, 0.03)
+    save(a, "28-arve", "DROITS RÉSERVÉS #28  ·  ARVE")
+
+
+def chantier():
+    """Plainpalais: les enseignes sont effacées, la lumière des lampadaires coule."""
+    rng = np.random.default_rng(909)
+    a = grade(load("15.jpg"), 1.12, 1.15)
+    for box in ((0.12, 0.405, 0.24, 0.45), (0.16, 0.282, 0.225, 0.302), (0.02, 0.425, 0.095, 0.45)):
+        censor(a, box)
+    pixel_sort(a, rng, 8, 0.5, 0.85, area=(0, 0.1, 1, 0.42))
+    smear(a, rng, 8, area=(0.4, 0.18, 0.7, 0.7))
+    pixel_sort(a, rng, 16, 0.25, 0.65, vertical=False, area=(0, 0.75, 1, 1))
+    rgb_split(a, 3)
+    a = grain(a, rng, 0.03)
+    save(a, "29-chantier", "DROITS RÉSERVÉS #29  ·  CHANTIER")
+
+
+def facades():
+    """Les immeubles: chaque étage glisse, le sol rouge s'étire."""
+    rng = np.random.default_rng(1010)
+    a = grade(load("16.jpg", (0, 0, 0.9, 1)), 1.12, 1.1)
+    censor(a, (0.5, 0.6, 0.78, 0.635), 16)
+    slices(a, rng, 10, 90, area=(0, 0.25, 1, 0.62))
+    pixel_sort(a, rng, 10, 0.5, 0.92, area=(0, 0, 1, 0.26))
+    pixel_sort(a, rng, 22, 0.15, 0.5, vertical=False, area=(0, 0.68, 1, 1))
+    smear(a, rng, 6, area=(0.05, 0.3, 0.95, 0.68))
+    a = grain(a, rng, 0.03)
+    save(a, "30-facades", "DROITS RÉSERVÉS #30  ·  FAÇADES")
+
+
+PIECES = dict(grille=grille, arc=arc, trame=trame, neige=neige,
+              arve=arve, chantier=chantier, facades=facades)
 
 if __name__ == "__main__":
     for name in sys.argv[1:] or PIECES:
