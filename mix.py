@@ -207,7 +207,8 @@ def arc():
 def censor(a, box, b=22):
     """Pixellise une zone précise (enseignes, logos): la marque disparaît dans le glitch."""
     x0, y0, x1, y1 = int(box[0] * W) // b * b, int(box[1] * H) // b * b, int(box[2] * W), int(box[3] * H)
-    w, h = max(b, (x1 - x0) // b * b + b), max(b, (y1 - y0) // b * b + b)
+    w = min(max(b, (x1 - x0) // b * b + b), (W - x0) // b * b)
+    h = min(max(b, (y1 - y0) // b * b + b), (H - y0) // b * b)
     blk = a[y0:y0 + h, x0:x0 + w]
     m = blk.reshape(h // b, b, w // b, b, 3).mean((1, 3))
     blk[:] = np.repeat(np.repeat(m, b, 0), b, 1)
@@ -278,12 +279,95 @@ def veils(a, rng, tones, n_big=4, n_small=7, op=(0.25, 0.6)):
     return out
 
 
+def tour_base():
+    """Houston, la tour au crépuscule: la façade se décale étage par étage."""
+    rng = np.random.default_rng(1414)
+    a = grade(load("17.jpg", (0, 0, 1, 0.82)), 1.15, 1.1)
+    pixel_sort(a, rng, 12, 0.45, 0.9, area=(0.05, 0.05, 0.95, 0.95))
+    slices(a, rng, 9, 70, area=(0, 0.15, 1, 0.95))
+    smear(a, rng, 8, area=(0.05, 0.2, 0.95, 1))
+    mosaic(a, rng, 3)
+    return grain(a, rng, 0.03)
+
+
+def crepuscule_base():
+    """La tour et les arbres nus: la lumière coule du haut de la tour."""
+    rng = np.random.default_rng(1515)
+    a = grade(load("18.jpg"), 1.15, 1.1)
+    pixel_sort(a, rng, 10, 0.5, 0.9, area=(0.2, 0.08, 0.95, 0.62))
+    slices(a, rng, 6, 50, area=(0.15, 0.1, 1, 0.65))
+    smear(a, rng, 6, area=(0.2, 0.15, 0.9, 0.7))
+    rgb_split(a, 3)
+    return grain(a, rng, 0.03)
+
+
+def fontaine_base():
+    """La fontaine de nuit: les jets et les néons s'étirent."""
+    rng = np.random.default_rng(1616)
+    a = grade(load("19.jpg"), 1.1, 1.15)
+    for box in ((0.93, 0.23, 1, 0.33), (0.22, 0.83, 0.3, 0.91)):          # Marriott, cône
+        censor(a, box)
+    pixel_sort(a, rng, 14, 0.25, 0.9, area=(0.05, 0.1, 0.95, 0.75))
+    smear(a, rng, 10, area=(0.15, 0.5, 0.95, 0.8))
+    smear(a, rng, 10, vertical=False, area=(0, 0.68, 1, 0.85))
+    rgb_split(a, 4)
+    return grain(a, rng, 0.03)
+
+
+def parking_base():
+    """Le parking: plaques et logos effacés, le sol béton s'étire."""
+    rng = np.random.default_rng(1717)
+    a = grade(load("20.jpg"), 1.12, 0.9)
+    for box in ((0.27, 0.64, 0.33, 0.675), (0.69, 0.565, 0.75, 0.6),       # plaques
+                (0.93, 0.545, 0.97, 0.57),
+                (0.28, 0.535, 0.37, 0.57), (0.69, 0.53, 0.735, 0.56),       # RAM, Chevrolet
+                (0.92, 0.51, 0.97, 0.545), (0.54, 0.58, 0.62, 0.63)):       # GMC, pneu
+        censor(a, box, 18)
+    pixel_sort(a, rng, 16, 0.3, 0.75, vertical=False, area=(0, 0.66, 1, 1))
+    pixel_sort(a, rng, 8, 0.45, 0.9, area=(0, 0, 1, 0.45))
+    slices(a, rng, 7, 60, area=(0, 0.4, 1, 0.7))
+    return grain(a, rng, 0.035)
+
+
+def houston_base():
+    """Portrait de nuit: le visage reste net, la ville autour se dérègle."""
+    rng = np.random.default_rng(1818)
+    a = grade(load("21.jpg"), 1.12, 1.1)
+    censor(a, (0.5, 0.595, 0.565, 0.615), 12)                              # logo de la veste
+    clean = a.copy()
+    pixel_sort(a, rng, 18, 0.25, 0.9, area=(0, 0.1, 1, 0.5))
+    smear(a, rng, 8, area=(0, 0.2, 1, 0.55))
+    slices(a, rng, 8, 60, area=(0, 0.48, 1, 1))
+    smear(a, rng, 8, vertical=False, area=(0, 0.6, 1, 1))
+    keep = (slice(int(0.47 * H), int(0.6 * H)), slice(int(0.44 * W), int(0.58 * W)))
+    a[keep] = clean[keep]
+    return grain(a, rng, 0.03)
+
+
 BW = [(0, 0, 0), (0, 0, 0), (255, 255, 255), "mono"]
 VARIANTS = dict(
     arve=("28", "ARVE", 1111, [(196, 22, 24), (255, 196, 120), (20, 30, 60), "mono"]),
     chantier=("29", "CHANTIER", 1212, [(232, 60, 190), (196, 22, 24), (40, 210, 120), "mono"]),
     facades=("30", "FAÇADES", 1313, [(236, 150, 160), (196, 22, 24), (30, 50, 110), "mono"]),
+    tour=("31", "TOUR", 1919, [(196, 22, 24), (30, 50, 110), (255, 255, 255), "mono"]),
+    crepuscule=("32", "CRÉPUSCULE", 2020, [(255, 190, 110), (196, 22, 24), (20, 30, 60), "mono"]),
+    fontaine=("33", "FONTAINE", 2121, [(170, 60, 255), (255, 30, 60), (30, 80, 255), "mono"]),
+    parking=("34", "PARKING", 2222, [(240, 200, 20), (196, 22, 24), (0, 0, 0), "mono"]),
+    houston=("35", "HOUSTON", 2323, [(255, 40, 60), (40, 80, 255), (255, 255, 255), "mono"]),
 )
+
+
+# zones kept clean of rectangles (fractional x0, y0, x1, y1)
+AVOID = dict(houston=(0.44, 0.47, 0.58, 0.6))
+
+
+def veils_keep(a, rng, tones, key):
+    out = veils(a, rng, tones)
+    if key in AVOID:
+        x0, y0, x1, y1 = AVOID[key]
+        ys, xs = slice(int(y0 * H), int(y1 * H)), slice(int(x0 * W), int(x1 * W))
+        out[ys, xs] = a[ys, xs]
+    return out
 
 
 def make_piece(key):
@@ -293,16 +377,19 @@ def make_piece(key):
         stem = f"{num}-{key}"
         label = f"DROITS RÉSERVÉS #{num}  ·  {title}"
         save(a, stem, label)
-        save(veils(a, np.random.default_rng(seed), BW), stem + "-noir-blanc", label)
-        save(veils(a, np.random.default_rng(seed + 1), colours), stem + "-couleur", label)
+        save(veils_keep(a, np.random.default_rng(seed), BW, key), stem + "-noir-blanc", label)
+        save(veils_keep(a, np.random.default_rng(seed + 1), colours, key), stem + "-couleur", label)
     return run
 
 
-arve, chantier, facades = (make_piece(k) for k in ("arve", "chantier", "facades"))
+arve, chantier, facades, tour, crepuscule, fontaine, parking, houston = (
+    make_piece(k) for k in ("arve", "chantier", "facades", "tour", "crepuscule", "fontaine",
+                            "parking", "houston"))
 
 
 PIECES = dict(grille=grille, arc=arc, trame=trame, neige=neige,
-              arve=arve, chantier=chantier, facades=facades)
+              arve=arve, chantier=chantier, facades=facades, tour=tour,
+              crepuscule=crepuscule, fontaine=fontaine, parking=parking, houston=houston)
 
 if __name__ == "__main__":
     for name in sys.argv[1:] or PIECES:
