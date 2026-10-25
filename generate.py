@@ -4,6 +4,7 @@ Each piece is fully determined by its seed and palette, so it can be
 regenerated identically:  python3 generate.py
 """
 import os
+import sys
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
@@ -119,6 +120,15 @@ def dither_grain(a, rng, amount):
     """Blend in a stochastic 1-bit dither, the speckled look of the series."""
     d = (rng.random(a.shape) < a).astype(np.float32)
     return a * (1 - amount) + d * amount
+
+
+def photo(path, gamma, keep_hi=99.5):
+    """Load a source photo as a contrast-stretched luminance array."""
+    src = os.path.join(os.path.dirname(os.path.abspath(__file__)), path)
+    img = Image.open(src).convert("L").resize((W, H), Image.LANCZOS)
+    a = np.asarray(img, dtype=np.float32) / 255
+    lo, hi = np.percentile(a, (0.5, keep_hi))
+    return np.clip((a - lo) / (hi - lo), 0, 1) ** gamma
 
 
 # ---------------------------------------------------------------- glitch ops
@@ -268,12 +278,30 @@ PIECES = [
                (0.6, (226, 150, 138)), (0.8, (240, 206, 194)), (1, (250, 244, 236))],
         grain=0.05,
     ),
+    dict(
+        num=16, seed=1616, title="VOILE", source="source/blonde.png", gamma=1.25,
+        keep=[(0.17, 0.205, 0.37, 0.29), (0.31, 0.465, 0.44, 0.53)],
+        ops=dict(sort=18, smear=7, stutter=24, displace=6, mosaic=6, speckle=3),
+        blocks=[0.02, 0.97], n_blocks=3, dither=0.2,
+        stops=[(0, (6, 6, 6)), (0.35, (60, 60, 60)), (0.7, (196, 196, 194)), (1, (248, 248, 246))],
+        grain=0.07,
+    ),
+    dict(
+        num=17, seed=1717, title="GIVRE", source="source/blonde.png", gamma=1.4,
+        keep=[(0.17, 0.205, 0.37, 0.29), (0.31, 0.465, 0.44, 0.53)],
+        ops=dict(sort=22, smear=8, stutter=22, displace=8, mosaic=8, speckle=2),
+        blocks=[0.08, 0.5, 0.98], n_blocks=5, dither=0.14,
+        stops=[(0, (10, 18, 34)), (0.3, (44, 74, 104)), (0.55, (130, 168, 186)),
+               (0.8, (226, 220, 200)), (1, (252, 248, 238))],
+        grain=0.05,
+    ),
 ]
 
 
 def make(p):
     rng = np.random.default_rng(p["seed"])
-    a = figure(rng, p["pose"])
+    a = photo(p["source"], p["gamma"]) if "source" in p else figure(rng, p["pose"])
+    clean = a.copy()
     o = p["ops"]
     a = displace(a, rng, o["displace"])
     a = pixel_sort(a, rng, o["sort"])
@@ -283,6 +311,9 @@ def make(p):
     a = mosaic(a, rng, o["mosaic"])
     a = solid_blocks(a, rng, p["n_blocks"], p["blocks"])
     a = speckle(a, rng, o["speckle"])
+    for x0, y0, x1, y1 in p.get("keep", []):     # leave a fragment of the photo intact
+        ys, xs = slice(int(y0 * H), int(y1 * H)), slice(int(x0 * W), int(x1 * W))
+        a[ys, xs] = clean[ys, xs]
     a = dither_grain(a, rng, p["dither"])
     rgb = gradient_map(a, p["stops"])
     label = f"{spaced('DROITS')}  {spaced('RÉSERVÉS')}  #{p['num']}   ·   {spaced(p['title'])}"
@@ -291,7 +322,10 @@ def make(p):
 
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)
+    only = {int(n) for n in sys.argv[1:]}
     for p in PIECES:
+        if only and p["num"] not in only:
+            continue
         path = os.path.join(OUT, f"droits-reserves-{p['num']}-{p['title'].lower()}.png")
         make(p).save(path, optimize=True)
         print(path)
