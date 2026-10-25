@@ -213,7 +213,7 @@ def censor(a, box, b=22):
     blk[:] = np.repeat(np.repeat(m, b, 0), b, 1)
 
 
-def arve():
+def arve_base():
     """La rivière au crépuscule: les nuages coulent sur la montagne, l'eau file en stries."""
     rng = np.random.default_rng(808)
     a = grade(load("14.jpg"), 1.15, 1.1)
@@ -222,10 +222,10 @@ def arve():
     smear(a, rng, 10, vertical=False, area=(0.15, 0.6, 1, 1))
     slices(a, rng, 5, 40, area=(0, 0.55, 1, 1))
     a = grain(a, rng, 0.03)
-    save(a, "28-arve", "DROITS RÉSERVÉS #28  ·  ARVE")
+    return a
 
 
-def chantier():
+def chantier_base():
     """Plainpalais: les enseignes sont effacées, la lumière des lampadaires coule."""
     rng = np.random.default_rng(909)
     a = grade(load("15.jpg"), 1.12, 1.15)
@@ -236,10 +236,10 @@ def chantier():
     pixel_sort(a, rng, 16, 0.25, 0.65, vertical=False, area=(0, 0.75, 1, 1))
     rgb_split(a, 3)
     a = grain(a, rng, 0.03)
-    save(a, "29-chantier", "DROITS RÉSERVÉS #29  ·  CHANTIER")
+    return a
 
 
-def facades():
+def facades_base():
     """Les immeubles: chaque étage glisse, le sol rouge s'étire."""
     rng = np.random.default_rng(1010)
     a = grade(load("16.jpg", (0, 0, 0.9, 1)), 1.12, 1.1)
@@ -249,7 +249,56 @@ def facades():
     pixel_sort(a, rng, 22, 0.15, 0.5, vertical=False, area=(0, 0.68, 1, 1))
     smear(a, rng, 6, area=(0.05, 0.3, 0.95, 0.68))
     a = grain(a, rng, 0.03)
-    save(a, "30-facades", "DROITS RÉSERVÉS #30  ·  FAÇADES")
+    return a
+
+
+def veils(a, rng, tones, n_big=4, n_small=7, op=(0.25, 0.6)):
+    """Rectangles et carrés translucides posés sur l'image.
+
+    tones: list of RGB tuples (0-255) or "mono" (the area beneath turns black and white).
+    """
+    out = a.copy()
+
+    def one(x, y, w, h):
+        tone = tones[int(rng.integers(len(tones)))]
+        o = rng.uniform(*op)
+        reg = out[y:y + h, x:x + w]
+        if tone == "mono":
+            g = lum(reg)[..., None]
+            reg[:] = reg * (1 - o - 0.3) + np.repeat(g, 3, -1) * (o + 0.3)
+        else:
+            reg[:] = reg * (1 - o) + np.array(tone, np.float32) / 255 * o
+    for _ in range(n_big):
+        x, y, w, h = rect(rng, 0.18, 0.5, 0.1, 0.3)
+        one(x, y, w, h)
+    for _ in range(n_small):
+        s_ = int(rng.uniform(0.04, 0.12) * W)
+        x, y, _w, _h = rect(rng, s_ / W, s_ / W, s_ / H, s_ / H)
+        one(x, y, s_, s_)
+    return out
+
+
+BW = [(0, 0, 0), (0, 0, 0), (255, 255, 255), "mono"]
+VARIANTS = dict(
+    arve=("28", "ARVE", 1111, [(196, 22, 24), (255, 196, 120), (20, 30, 60), "mono"]),
+    chantier=("29", "CHANTIER", 1212, [(232, 60, 190), (196, 22, 24), (40, 210, 120), "mono"]),
+    facades=("30", "FAÇADES", 1313, [(236, 150, 160), (196, 22, 24), (30, 50, 110), "mono"]),
+)
+
+
+def make_piece(key):
+    def run():
+        num, title, seed, colours = VARIANTS[key]
+        a = globals()[key + "_base"]()
+        stem = f"{num}-{key}"
+        label = f"DROITS RÉSERVÉS #{num}  ·  {title}"
+        save(a, stem, label)
+        save(veils(a, np.random.default_rng(seed), BW), stem + "-noir-blanc", label)
+        save(veils(a, np.random.default_rng(seed + 1), colours), stem + "-couleur", label)
+    return run
+
+
+arve, chantier, facades = (make_piece(k) for k in ("arve", "chantier", "facades"))
 
 
 PIECES = dict(grille=grille, arc=arc, trame=trame, neige=neige,
