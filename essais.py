@@ -77,6 +77,28 @@ TITLES = {
 }
 NAMES = dict(voiles="1 · VOILES", serie_la="2 · SÉRIE LA", sacre="3 · SACRÉ", origine="4 · ORIGINE")
 
+# ---------------------------------------------------------------- #58 avec un foulard en couleur
+
+SCARF = (0.455, 0.33, 0.53, 0.63)          # the white strip of the scarf in #58 MARCHE
+GREENS = dict(vert=(20, 150, 90), pastel=(150, 225, 185))
+
+
+def marche_couleur():
+    a = origine(PHOTOS["porteuse"](), np.random.default_rng(6000 + 10 * 3), "porteuse")
+    L = la.lum(a)
+    x0, y0, x1, y1 = (int(v * S) for v in SCARF)
+    zone = np.zeros((S, S), np.float32)
+    zone[y0:y1, x0:x1] = 1
+    mask = m.blur(zone * np.clip((L - 0.45) * 4, 0, 1), 1.2)[..., None]
+    for name, col in GREENS.items():
+        tint = L[..., None] * np.array(col, np.float32) / 255 * 1.15     # black stays black
+        out = a * (1 - mask) + np.clip(tint, 0, 1) * mask
+        stem = os.path.join(OUT, f"58-marche-{name}")
+        Image.fromarray((np.clip(out, 0, 1) * 255).astype(np.uint8)).save(stem + ".png", optimize=True)
+        la.poster(out, "58", "MARCHE", "OUAGADOUGOU", "12.37° N  1.52° W",
+                  "GLITCH / UN VERT").save(stem + "-affiche.png", optimize=True)
+
+
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)
     t = 600
@@ -96,4 +118,6 @@ if __name__ == "__main__":
                 stem + "-affiche.png", optimize=True)
             sheet.paste(img.resize((t, t)), (j * t, 60 + i * t))
     sheet.save(os.path.join(OUT, "planche.jpg"), quality=90)
+    marche_couleur()
     print(OUT)
+
