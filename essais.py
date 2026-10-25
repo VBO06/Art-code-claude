@@ -80,7 +80,12 @@ NAMES = dict(voiles="1 · VOILES", serie_la="2 · SÉRIE LA", sacre="3 · SACRÉ
 # ---------------------------------------------------------------- #58 avec un foulard en couleur
 
 SCARF = (0.455, 0.33, 0.53, 0.63)          # the white strip of the scarf in #58 MARCHE
-GREENS = dict(vert=(20, 150, 90), pastel=(150, 225, 185))
+COLOURS = dict(
+    vert=(20, 150, 90), pastel=(150, 225, 185),
+    rose=(240, 150, 185), bleu=(140, 195, 240), jaune=(245, 205, 60),
+    orange=(240, 120, 40), rouge=(214, 32, 38), violet=(150, 110, 220),
+    turquoise=(40, 190, 175), lavande=(200, 185, 235),
+)
 
 
 def marche_couleur():
@@ -90,13 +95,25 @@ def marche_couleur():
     zone = np.zeros((S, S), np.float32)
     zone[y0:y1, x0:x1] = 1
     mask = m.blur(zone * np.clip((L - 0.45) * 4, 0, 1), 1.2)[..., None]
-    for name, col in GREENS.items():
+    tiles = []
+    for name, col in COLOURS.items():
         tint = L[..., None] * np.array(col, np.float32) / 255 * 1.15     # black stays black
         out = a * (1 - mask) + np.clip(tint, 0, 1) * mask
         stem = os.path.join(OUT, f"58-marche-{name}")
         Image.fromarray((np.clip(out, 0, 1) * 255).astype(np.uint8)).save(stem + ".png", optimize=True)
         la.poster(out, "58", "MARCHE", "OUAGADOUGOU", "12.37° N  1.52° W",
-                  "GLITCH / UN VERT").save(stem + "-affiche.png", optimize=True)
+                  "GLITCH / UNE COULEUR").save(stem + "-affiche.png", optimize=True)
+        tiles.append((name, out))
+    t = 480
+    sheet = Image.new("RGB", (5 * t, 2 * (t + 50)), (242, 239, 232))
+    d = ImageDraw.Draw(sheet)
+    font = ImageFont.truetype(la.FONTS + "Bold.ttf", 26)
+    for i, (name, out) in enumerate(tiles):
+        x, y = (i % 5) * t, (i // 5) * (t + 50)
+        d.text((x + 16, y + 12), name.upper(), font=font, fill=(24, 24, 24))
+        tile = Image.fromarray((np.clip(out, 0, 1) * 255).astype(np.uint8)).crop((540, 450, 1260, 1170))
+        sheet.paste(tile.resize((t, t)), (x, y + 50))
+    sheet.save(os.path.join(OUT, "58-marche-couleurs.jpg"), quality=90)
 
 
 if __name__ == "__main__":
