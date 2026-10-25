@@ -1,7 +1,7 @@
-"""Tours et paysages: superpositions et effets glitch sur les photos de source/villes.
+"""Tours et paysages: filtres glitch sur les photos de source/villes.
 
     python3 mix.py            -> output/villes/*.png
-    python3 mix.py fenetres   -> une seule pièce
+    python3 mix.py trame      -> une seule pièce
 """
 import os
 import sys
@@ -144,78 +144,36 @@ def sky_mask(a, r=3):
 
 # ---------------------------------------------------------------- pieces
 
-def fenetres():
-    """La tour: ses fenêtres sombres s'ouvrent sur le Mont-Blanc."""
-    rng = np.random.default_rng(101)
-    tower = load("07.jpg")
-    land = grade(load("12.jpg", (0, 0.2, 1, 0.68)), 1.2, 1.15)
-    L = lum(tower)
-    sky = sky_mask(tower)
-    windows = blur((L < 0.22).astype(np.float32), 1.5) * (1 - sky)
-    a = tower * (1 - windows[..., None]) + land * windows[..., None]
-    # the sky turns into a pale, washed version of the landscape
-    ghost = grade(land, 0.8, 0.6, 0.12)
-    a = a * (1 - sky[..., None] * 0.55) + ghost * sky[..., None] * 0.55
-    pixel_sort(a, rng, 10, 0.35, 0.9, area=(0.1, 0.1, 0.9, 0.9))
-    smear(a, rng, 12, area=(0.1, 0.2, 0.9, 1))
-    slices(a, rng, 6, 40)
-    mosaic(a, rng, 4)
-    a = grain(grade(a, 1.08), rng, 0.03)
-    save(a, "19-fenetres", "DROITS RÉSERVÉS #19  ·  FENÊTRES")
+def bayer(n):
+    m = np.array([[0]])
+    while m.shape[0] < n:
+        m = np.block([[4 * m, 4 * m + 2], [4 * m + 3, 4 * m + 1]])
+    return (m + 0.5) / m.size
 
 
-def miroir():
-    """Le lac reflète une tour qui n'existe pas."""
-    rng = np.random.default_rng(202)
-    land = grade(load("13.jpg"), 1.12, 1.05)
-    top = int(0.615 * H)
-    tower = Image.open(os.path.join(SRC, "06.jpg")).convert("RGB")
-    tw, th = tower.size
-    tower = tower.crop((0, 0, tw, int(th * 0.84))).resize((W, H - top), Image.LANCZOS)
-    refl = np.zeros((H, W, 3), np.float32)
-    refl[:H - top] = (np.asarray(tower, dtype=np.float32) / 255)[::-1]
-    # ripple: shift each row sideways like moving water
-    yy = np.arange(H)
-    shifts = (np.sin(yy / 7.0) * 6 + np.sin(yy / 23.0) * 10).astype(int)
-    refl = np.stack([np.roll(refl[y], shifts[y], 0) for y in range(H)])
-    refl = grade(refl, 1.0, 0.6)
-    # water: below the treeline, minus the rock jetty
-    water = np.zeros((H, W), np.float32)
-    water[top:] = 1
-    water[int(0.67 * H):int(0.76 * H)] = 0
-    water = blur(water, 8) * np.clip((lum(land) - 0.2) * 4, 0, 1)
-    offset = np.zeros_like(refl)
-    offset[top:] = refl[:H - top]
-    alpha = (water * 0.8)[..., None]
-    a = land * (1 - alpha) + (land * 0.25 + offset * 0.85) * alpha
-    pixel_sort(a, rng, 14, 0.3, 0.85, vertical=False, area=(0, 0.6, 1, 1))
-    smear(a, rng, 18, vertical=False, area=(0, 0.6, 1, 1))
-    pixel_sort(a, rng, 4, 0.55, 0.98, area=(0.2, 0.25, 0.85, 0.45))   # the snow drips
-    slices(a, rng, 5, 30, area=(0, 0.6, 1, 1))
-    a = grain(a, rng, 0.028)
-    save(a, "20-miroir", "DROITS RÉSERVÉS #20  ·  MIROIR", ink=(40, 50, 70))
+def trame():
+    """Filtre seul: trame 1-bit ordonnée, bleu nuit et blanc."""
+    rng = np.random.default_rng(606)
+    a = grade(load("07.jpg", (0, 0, 0.92, 1)), 1.25)
+    pixel_sort(a, rng, 8, 0.4, 0.9, area=(0.1, 0.1, 0.9, 0.9))
+    L = blur(lum(a), 0.6)
+    t = np.tile(bayer(8), (H // 8 + 1, W // 8 + 1))[:H, :W]
+    on = (L > t).astype(np.float32)[..., None]
+    ink, paper = np.array([12, 22, 60]) / 255, np.array([244, 242, 236]) / 255
+    a = ink * (1 - on) + paper * on
+    save(a, "26-trame", "DROITS RÉSERVÉS #26  ·  TRAME", ink=(12, 22, 60))
 
 
-def entre_deux():
-    """Bandes verticales: une tour et un paysage tissés l'un dans l'autre."""
-    rng = np.random.default_rng(303)
-    tower = grade(load("04.jpg", (0.17, 0, 1, 1)), 1.1)
-    land = grade(load("11.jpg"), 1.1, 1.1)
-    a = land.copy()
-    x = 0
-    take = False
-    while x < W:
-        w = int(rng.choice([8, 16, 24, 40, 70, 110]))
-        if take:
-            dy = int(rng.integers(-80, 80))
-            a[:, x:x + w] = np.roll(tower[:, x:x + w], dy, 0)
-        take = not take if rng.random() < 0.8 else take
-        x += w
-    pixel_sort(a, rng, 12, 0.4, 0.95, area=(0, 0.2, 1, 0.8))
-    smear(a, rng, 10)
-    rgb_split(a, 4)
-    a = grain(a, rng, 0.03)
-    save(a, "21-entre-deux", "DROITS RÉSERVÉS #21  ·  ENTRE-DEUX")
+def neige():
+    """Filtre seul: palette noir / rouge / crème de la série, la neige coule."""
+    rng = np.random.default_rng(707)
+    a = grade(load("11.jpg"), 1.15)
+    pixel_sort(a, rng, 10, 0.6, 0.98, area=(0.15, 0.25, 0.9, 0.5))
+    smear(a, rng, 6, area=(0, 0.5, 1, 1))
+    a = mono(a, [(0, (6, 2, 2)), (0.3, (70, 6, 8)), (0.55, (190, 24, 26)),
+                 (0.8, (236, 150, 128)), (1, (250, 236, 224))])
+    a = grain(a, rng, 0.04)
+    save(a, "27-neige", "DROITS RÉSERVÉS #27  ·  NEIGE")
 
 
 def grille():
@@ -246,7 +204,7 @@ def arc():
     save(a, "23-arc", "DROITS RÉSERVÉS #23  ·  ARC")
 
 
-PIECES = dict(fenetres=fenetres, miroir=miroir, entre_deux=entre_deux, grille=grille, arc=arc)
+PIECES = dict(grille=grille, arc=arc, trame=trame, neige=neige)
 
 if __name__ == "__main__":
     for name in sys.argv[1:] or PIECES:

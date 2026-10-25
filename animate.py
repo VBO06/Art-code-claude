@@ -4,19 +4,28 @@ A slow scan melts a thin band of pixels as it travels down the frame, and two
 short bursts (RGB split, slice shifts, streaks, mosaic) break the image before
 it settles again. The loop is seamless.
 
-    python3 animate.py            -> output/droits-reserves-18-passage.mp4
+    python3 animate.py            -> every piece in PIECES
+    python3 animate.py 24 25      -> only those numbers
 """
 import os
 import subprocess
+import sys
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-SOURCE = os.path.join(ROOT, "source", "blonde.png")
-OUT = os.path.join(ROOT, "output", "droits-reserves-18-passage.mp4")
 FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
-LABEL = "D R O I T S   R É S E R V É S   # 1 8    ·    P A S S A G E"
+
+# box: fractional crop (x0, y0, x1, y1) applied before fitting to 2:3
+PIECES = [
+    dict(num=18, title="PASSAGE", source="source/blonde.png", box=(0, 0, 1, 1),
+         out="output/droits-reserves-18-passage.mp4", ink=(70, 70, 70, 200), crf=21),
+    dict(num=24, title="VERTIGE", source="source/villes/07.jpg", box=(0, 0, 0.92, 1),
+         out="output/villes/24-vertige.mp4", ink=(230, 230, 230, 200), crf=23),
+    dict(num=25, title="SOMMET", source="source/villes/12.jpg", box=(0, 0.05, 1, 1),
+         out="output/villes/25-sommet.mp4", ink=(230, 230, 230, 200), crf=23),
+]
 
 W, H = 1080, 1620
 FPS, SECONDS = 24, 8
@@ -24,8 +33,18 @@ N = FPS * SECONDS
 BURSTS = [(2.1, 0.45), (5.6, 0.35)]   # (start s, length s)
 
 
-def load():
-    img = Image.open(SOURCE).convert("RGB").resize((W, H), Image.LANCZOS)
+def load(source, box):
+    img = Image.open(os.path.join(ROOT, source)).convert("RGB")
+    w, h = img.size
+    img = img.crop((int(box[0] * w), int(box[1] * h), int(box[2] * w), int(box[3] * h)))
+    w, h = img.size
+    if w / h > W / H:                                   # centre-crop to 2:3
+        nw = int(h * W / H)
+        img = img.crop(((w - nw) // 2, 0, (w - nw) // 2 + nw, h))
+    else:
+        nh = int(w * H / W)
+        img = img.crop((0, (h - nh) // 2, w, (h - nh) // 2 + nh))
+    img = img.resize((W, H), Image.LANCZOS)
     a = np.asarray(img, dtype=np.float32) / 255
     # gentle S-curve and deeper shadows so the pastel photo doesn't read flat
     a = np.clip((a - 0.5) * 1.18 + 0.47, 0, 1)
@@ -105,23 +124,31 @@ def frame(base, i, label_img):
     return out
 
 
-def label():
+def label(p):
+    text = "   ".join(" ".join(w) for w in ("DROITS", "RÉSERVÉS", f"#{p['num']}", "·", p["title"]))
     img = Image.new("RGBA", (W, 80), (0, 0, 0, 0))
-    ImageDraw.Draw(img).text((40, 30), LABEL, font=ImageFont.truetype(FONT, 18),
-                             fill=(70, 70, 70, 200))
+    ImageDraw.Draw(img).text((40, 30), text, font=ImageFont.truetype(FONT, 18), fill=p["ink"])
     return np.asarray(img, dtype=np.float32)
 
 
-if __name__ == "__main__":
-    base, lab = load(), label()
-    os.makedirs(os.path.dirname(OUT), exist_ok=True)
+def render(p):
+    base, lab = load(p["source"], p["box"]), label(p)
+    out = os.path.join(ROOT, p["out"])
+    os.makedirs(os.path.dirname(out), exist_ok=True)
     ff = subprocess.Popen(
         ["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24",
          "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-", "-c:v", "libx264", "-preset", "slow",
-         "-crf", "21", "-pix_fmt", "yuv420p", "-movflags", "+faststart", OUT],
+         "-crf", str(p["crf"]), "-pix_fmt", "yuv420p", "-movflags", "+faststart", out],
         stdin=subprocess.PIPE)
     for i in range(N):
         ff.stdin.write(frame(base, i, lab).tobytes())
     ff.stdin.close()
     ff.wait()
-    print(OUT)
+    print(out)
+
+
+if __name__ == "__main__":
+    only = {int(n) for n in sys.argv[1:]}
+    for p in PIECES:
+        if not only or p["num"] in only:
+            render(p)
