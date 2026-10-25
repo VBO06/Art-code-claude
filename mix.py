@@ -1,0 +1,253 @@
+"""Tours et paysages: superpositions et effets glitch sur les photos de source/villes.
+
+    python3 mix.py            -> output/villes/*.png
+    python3 mix.py fenetres   -> une seule pièce
+"""
+import os
+import sys
+
+import numpy as np
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
+
+ROOT = os.path.dirname(os.path.abspath(__file__))
+SRC = os.path.join(ROOT, "source", "villes")
+OUT = os.path.join(ROOT, "output", "villes")
+FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
+W, H = 1500, 2000
+LUMA = np.array([0.299, 0.587, 0.114], dtype=np.float32)
+
+
+# ---------------------------------------------------------------- io
+
+def load(name, box=(0, 0, 1, 1)):
+    """Load a photo, crop by fractional box (x0, y0, x1, y1), fit to W x H."""
+    img = Image.open(os.path.join(SRC, name)).convert("RGB")
+    w, h = img.size
+    x0, y0, x1, y1 = box
+    img = img.crop((int(x0 * w), int(y0 * h), int(x1 * w), int(y1 * h)))
+    # centre-crop to 3:4, then resize
+    w, h = img.size
+    if w / h > W / H:
+        nw = int(h * W / H)
+        img = img.crop(((w - nw) // 2, 0, (w - nw) // 2 + nw, h))
+    else:
+        nh = int(w * H / W)
+        img = img.crop((0, (h - nh) // 2, w, (h - nh) // 2 + nh))
+    return np.asarray(img.resize((W, H), Image.LANCZOS), dtype=np.float32) / 255
+
+
+def lum(a):
+    return a @ LUMA
+
+
+def blur(m, r):
+    img = Image.fromarray((np.clip(m, 0, 1) * 255).astype(np.uint8))
+    return np.asarray(img.filter(ImageFilter.GaussianBlur(r)), dtype=np.float32) / 255
+
+
+def save(a, name, label, ink=(235, 235, 235)):
+    img = Image.fromarray((np.clip(a, 0, 1) * 255).astype(np.uint8))
+    ImageDraw.Draw(img).text((50, H - 60), label, font=ImageFont.truetype(FONT, 20), fill=ink)
+    os.makedirs(OUT, exist_ok=True)
+    path = os.path.join(OUT, name + ".png")
+    img.save(path, optimize=True)
+    print(path)
+
+
+# ---------------------------------------------------------------- effects (RGB)
+
+def rect(rng, wmin, wmax, hmin, hmax, area=(0, 0, 1, 1)):
+    ax0, ay0, ax1, ay1 = (int(area[0] * W), int(area[1] * H), int(area[2] * W), int(area[3] * H))
+    w = max(2, int(rng.uniform(wmin, wmax) * W))
+    h = max(2, int(rng.uniform(hmin, hmax) * H))
+    x = int(rng.integers(ax0, max(ax0 + 1, ax1 - w)))
+    y = int(rng.integers(ay0, max(ay0 + 1, ay1 - h)))
+    return x, y, w, h
+
+
+def sort_runs(a, x, y, w, h, lo, hi, vertical=True, min_run=8):
+    """Asendorf pixel sort: sort runs whose brightness is within [lo, hi]."""
+    reg = a[y:y + h, x:x + w] if vertical else a[y:y + h, x:x + w].transpose(1, 0, 2)
+    L = lum(reg)
+    for c in range(reg.shape[1]):
+        m = (L[:, c] > lo) & (L[:, c] < hi)
+        edges = np.flatnonzero(np.diff(np.concatenate(([0], m.astype(np.int8), [0]))))
+        for s, e in zip(edges[::2], edges[1::2]):
+            if e - s >= min_run:
+                idx = np.argsort(L[s:e, c])
+                reg[s:e, c] = reg[s:e, c][idx]
+
+
+def pixel_sort(a, rng, n, lo, hi, vertical=True, area=(0, 0, 1, 1)):
+    for _ in range(n):
+        if vertical:
+            x, y, w, h = rect(rng, 0.03, 0.2, 0.15, 0.5, area)
+        else:
+            x, y, w, h = rect(rng, 0.2, 0.7, 0.01, 0.08, area)
+        sort_runs(a, x, y, w, h, lo, hi, vertical)
+
+
+def smear(a, rng, n, vertical=True, area=(0, 0, 1, 1)):
+    for _ in range(n):
+        if vertical:
+            x, y, w, h = rect(rng, 0.01, 0.08, 0.05, 0.3, area)
+            a[y:y + h, x:x + w] = a[y, x:x + w][None]
+        else:
+            x, y, w, h = rect(rng, 0.05, 0.4, 0.004, 0.03, area)
+            a[y:y + h, x:x + w] = a[y:y + h, x][:, None]
+
+
+def slices(a, rng, n, amount, area=(0, 0, 1, 1)):
+    for _ in range(n):
+        x, y, w, h = rect(rng, 1, 1, 0.003, 0.03, area)
+        a[y:y + h] = np.roll(a[y:y + h], int(rng.integers(-amount, amount)), 1)
+
+
+def rgb_split(a, dx):
+    a[..., 0] = np.roll(a[..., 0], dx, 1)
+    a[..., 2] = np.roll(a[..., 2], -dx, 1)
+
+
+def mosaic(a, rng, n, area=(0, 0, 1, 1)):
+    for _ in range(n):
+        b = int(rng.choice([10, 16, 24]))
+        x, y, w, h = rect(rng, 0.04, 0.15, 0.02, 0.08, area)
+        w, h = w // b * b, h // b * b
+        blk = a[y:y + h, x:x + w]
+        m = blk.reshape(h // b, b, w // b, b, 3).mean((1, 3))
+        blk[:] = np.repeat(np.repeat(m, b, 0), b, 1)
+
+
+def grain(a, rng, s):
+    return np.clip(a + rng.normal(0, s, (H, W, 1)).astype(np.float32), 0, 1)
+
+
+def grade(a, contrast=1.1, sat=1.0, lift=0.0):
+    a = (a - 0.5) * contrast + 0.5 + lift
+    g = lum(a)[..., None]
+    return np.clip(g + (a - g) * sat, 0, 1)
+
+
+def mono(a, stops):
+    pos = np.array([p for p, _ in stops])
+    cols = np.array([c for _, c in stops], dtype=np.float32) / 255
+    L = lum(a)
+    return np.stack([np.interp(L, pos, cols[:, i]) for i in range(3)], -1)
+
+
+def sky_mask(a, r=3):
+    """Blue, fairly bright pixels: the sky (and its clouds)."""
+    R, G, B = a[..., 0], a[..., 1], a[..., 2]
+    m = ((B - R > 0.12) & (lum(a) > 0.3)) | ((lum(a) > 0.78) & (B >= R))
+    return blur(m.astype(np.float32), r)
+
+
+# ---------------------------------------------------------------- pieces
+
+def fenetres():
+    """La tour: ses fenêtres sombres s'ouvrent sur le Mont-Blanc."""
+    rng = np.random.default_rng(101)
+    tower = load("07.jpg")
+    land = grade(load("12.jpg", (0, 0.2, 1, 0.68)), 1.2, 1.15)
+    L = lum(tower)
+    sky = sky_mask(tower)
+    windows = blur((L < 0.22).astype(np.float32), 1.5) * (1 - sky)
+    a = tower * (1 - windows[..., None]) + land * windows[..., None]
+    # the sky turns into a pale, washed version of the landscape
+    ghost = grade(land, 0.8, 0.6, 0.12)
+    a = a * (1 - sky[..., None] * 0.55) + ghost * sky[..., None] * 0.55
+    pixel_sort(a, rng, 10, 0.35, 0.9, area=(0.1, 0.1, 0.9, 0.9))
+    smear(a, rng, 12, area=(0.1, 0.2, 0.9, 1))
+    slices(a, rng, 6, 40)
+    mosaic(a, rng, 4)
+    a = grain(grade(a, 1.08), rng, 0.03)
+    save(a, "19-fenetres", "DROITS RÉSERVÉS #19  ·  FENÊTRES")
+
+
+def miroir():
+    """Le lac reflète une tour qui n'existe pas."""
+    rng = np.random.default_rng(202)
+    land = grade(load("13.jpg"), 1.12, 1.05)
+    top = int(0.615 * H)
+    tower = Image.open(os.path.join(SRC, "06.jpg")).convert("RGB")
+    tw, th = tower.size
+    tower = tower.crop((0, 0, tw, int(th * 0.84))).resize((W, H - top), Image.LANCZOS)
+    refl = np.zeros((H, W, 3), np.float32)
+    refl[:H - top] = (np.asarray(tower, dtype=np.float32) / 255)[::-1]
+    # ripple: shift each row sideways like moving water
+    yy = np.arange(H)
+    shifts = (np.sin(yy / 7.0) * 6 + np.sin(yy / 23.0) * 10).astype(int)
+    refl = np.stack([np.roll(refl[y], shifts[y], 0) for y in range(H)])
+    refl = grade(refl, 1.0, 0.6)
+    # water: below the treeline, minus the rock jetty
+    water = np.zeros((H, W), np.float32)
+    water[top:] = 1
+    water[int(0.67 * H):int(0.76 * H)] = 0
+    water = blur(water, 8) * np.clip((lum(land) - 0.2) * 4, 0, 1)
+    offset = np.zeros_like(refl)
+    offset[top:] = refl[:H - top]
+    alpha = (water * 0.8)[..., None]
+    a = land * (1 - alpha) + (land * 0.25 + offset * 0.85) * alpha
+    pixel_sort(a, rng, 14, 0.3, 0.85, vertical=False, area=(0, 0.6, 1, 1))
+    smear(a, rng, 18, vertical=False, area=(0, 0.6, 1, 1))
+    pixel_sort(a, rng, 4, 0.55, 0.98, area=(0.2, 0.25, 0.85, 0.45))   # the snow drips
+    slices(a, rng, 5, 30, area=(0, 0.6, 1, 1))
+    a = grain(a, rng, 0.028)
+    save(a, "20-miroir", "DROITS RÉSERVÉS #20  ·  MIROIR", ink=(40, 50, 70))
+
+
+def entre_deux():
+    """Bandes verticales: une tour et un paysage tissés l'un dans l'autre."""
+    rng = np.random.default_rng(303)
+    tower = grade(load("04.jpg", (0.17, 0, 1, 1)), 1.1)
+    land = grade(load("11.jpg"), 1.1, 1.1)
+    a = land.copy()
+    x = 0
+    take = False
+    while x < W:
+        w = int(rng.choice([8, 16, 24, 40, 70, 110]))
+        if take:
+            dy = int(rng.integers(-80, 80))
+            a[:, x:x + w] = np.roll(tower[:, x:x + w], dy, 0)
+        take = not take if rng.random() < 0.8 else take
+        x += w
+    pixel_sort(a, rng, 12, 0.4, 0.95, area=(0, 0.2, 1, 0.8))
+    smear(a, rng, 10)
+    rgb_split(a, 4)
+    a = grain(a, rng, 0.03)
+    save(a, "21-entre-deux", "DROITS RÉSERVÉS #21  ·  ENTRE-DEUX")
+
+
+def grille():
+    """Effet seul, noir et blanc: la façade fond en pixels."""
+    rng = np.random.default_rng(404)
+    a = load("05.jpg", (0, 0, 1, 0.8))
+    pixel_sort(a, rng, 22, 0.3, 0.88)
+    smear(a, rng, 16)
+    slices(a, rng, 8, 60)
+    mosaic(a, rng, 6)
+    a = mono(a, [(0, (6, 6, 6)), (0.35, (55, 55, 55)), (0.7, (200, 200, 198)), (1, (250, 250, 248))])
+    d = (rng.random((H, W)) < lum(a)).astype(np.float32)[..., None]
+    a = a * 0.82 + d * 0.18
+    a = grain(a, rng, 0.05)
+    save(a, "22-grille", "DROITS RÉSERVÉS #22  ·  GRILLE")
+
+
+def arc():
+    """Effet seul, couleur: l'arc-en-ciel coule sur le parking."""
+    rng = np.random.default_rng(505)
+    a = grade(load("02.jpg"), 1.2, 1.6)
+    pixel_sort(a, rng, 34, 0.5, 0.85, area=(0, 0, 1, 0.62))
+    smear(a, rng, 18, area=(0.05, 0.2, 0.95, 1))
+    rgb_split(a, 5)
+    smear(a, rng, 8, vertical=False, area=(0, 0.6, 1, 1))
+    slices(a, rng, 7, 50, area=(0, 0.55, 1, 1))
+    a = grain(a, rng, 0.035)
+    save(a, "23-arc", "DROITS RÉSERVÉS #23  ·  ARC")
+
+
+PIECES = dict(fenetres=fenetres, miroir=miroir, entre_deux=entre_deux, grille=grille, arc=arc)
+
+if __name__ == "__main__":
+    for name in sys.argv[1:] or PIECES:
+        PIECES[name]()
