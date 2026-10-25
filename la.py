@@ -28,11 +28,21 @@ INK = (24, 24, 24)
 
 # ---------------------------------------------------------------- io
 
-def load(name, box, hide=()):
-    """Crop a post out of an Instagram screenshot (box/hide in displayed points)."""
+def load(name, box, hide=(), patch=()):
+    """Crop a post out of an Instagram screenshot (box/hide/patch in displayed points).
+
+    patch: Instagram overlays (1/7 badges) covered with the area just to their left,
+    or just below when the box ends with "down".
+    """
     img = Image.open(os.path.join(SRC, name)).convert("RGB")
     a = np.asarray(img, dtype=np.float32) / 255
     a = a.copy()
+    for p in patch:
+        x0, y0, x1, y1 = (int(v * SCREEN) for v in p[:4])
+        if p[4:] == ("down",):
+            a[y0:y1, x0:x1] = a[y1:2 * y1 - y0, x0:x1]
+        else:
+            a[y0:y1, x0:x1] = a[y0:y1, 2 * x0 - x1:x0]
     for x0, y0, x1, y1 in hide:                  # pixelate logos and posters
         b = 14
         x0, y0 = int(x0 * SCREEN) // b * b, int(y0 * SCREEN) // b * b
