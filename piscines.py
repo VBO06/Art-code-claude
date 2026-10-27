@@ -200,6 +200,14 @@ if __name__ == "__main__":
         vit.append((label, out))
     sheet(vit, "planche-vitrail-40.jpg", 3)
 
+    # 1d. the untouched photo, only the panes coloured
+    orig = []
+    for k, seed in enumerate((7, 8, 9)):
+        out = colour_panes(src.copy(), labels, np.random.default_rng(seed))
+        save(out, f"40-piscine-originale-{k + 1}", 40, "PISCINE", "PALM SPRINGS", "33.82° N  116.54° W")
+        orig.append((f"ORIGINALE {k + 1}", out))
+    sheet(orig, "planche-originale-40.jpg", 3)
+
     # 2. the series
     series, multis = [], []
     for num, stem, title, place, coords, load, sort_area, smear_area, keep in PIECES:
