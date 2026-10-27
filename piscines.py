@@ -6,7 +6,7 @@ coulures, voiles pastel translucides) appliqué à d'autres photos.
 import os
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 import la
 import mix as m
@@ -146,6 +146,62 @@ def lumiere(photo, labels, rng, axis=1150, light=0.75, water=0.45):
     return np.clip(a, 0, 1)
 
 
+# the glass balustrade around the terrace (full-frame pixel polygon)
+GLASS = [(165, 927), (1635, 952), (1650, 960), (1800, 962), (1800, 1800), (1635, 1800),
+         (900, 1665), (457, 1492), (172, 1410)]
+
+
+def spiral(d, cx, cy, size, turns, flip, width):
+    """A Burton-style curl: an Archimedean spiral ending in a long tendril."""
+    th = np.linspace(0, turns * 2 * np.pi, 400)
+    r = size * th / th[-1]
+    pts = [(cx + flip * r_ * np.cos(t), cy - r_ * np.sin(t)) for r_, t in zip(r, th)]
+    end = pts[-1]
+    tail = [(end[0] + flip * k * size * 0.08, end[1] + size * 0.9 * (k / 12) ** 1.6) for k in range(13)]
+    d.line(pts + tail, fill=255, width=width, joint="curve")
+
+
+def feerie(a, rng, tint=0.34):
+    """Smoked glass with etched curls and stars, and a few fireflies."""
+    k = 2                                                 # draw at 2x for smooth lines
+    poly = Image.new("L", (S, S), 0)
+    ImageDraw.Draw(poly).polygon(GLASS, fill=255)
+    glass = m.blur(np.asarray(poly, np.float32) / 255, 2)[..., None]
+    smoke = np.array([0.06, 0.04, 0.12], np.float32)       # black with a hint of violet
+    a = a * (1 - glass * tint) + smoke * glass * tint
+
+    lines = Image.new("L", (S * k, S * k), 0)
+    d = ImageDraw.Draw(lines)
+    for cx, cy, size, turns, flip in ((330, 1250, 85, 2.6, 1), (690, 1390, 110, 3.0, -1),
+                                      (1080, 1360, 70, 2.4, 1), (1420, 1500, 120, 3.2, -1),
+                                      (1720, 1180, 75, 2.6, 1)):
+        spiral(d, cx * k, cy * k, size * k, turns, flip, 3 * k)
+    # a curly hill line along the foot of the glass
+    xs = np.linspace(172, 1800, 300)
+    base = np.interp(xs, [172, 457, 900, 1635, 1800], [1395, 1477, 1650, 1785, 1790])
+    hill = [(x * k, (y - 18 - 10 * np.sin(x / 55)) * k) for x, y in zip(xs, base)]
+    d.line(hill, fill=180, width=2 * k)
+    for _ in range(26):                                    # tiny four-point stars
+        x, y = rng.uniform(200, 1780), rng.uniform(960, 1350)
+        r = rng.uniform(5, 13)
+        d.line([(x * k - r * k, y * k), (x * k + r * k, y * k)], fill=230, width=k)
+        d.line([(x * k, y * k - r * k), (x * k, y * k + r * k)], fill=230, width=k)
+    etch = np.asarray(lines.resize((S, S), Image.LANCZOS), np.float32) / 255
+    etch = (m.blur(etch, 0.8) * glass[..., 0])[..., None]
+    a = a * (1 - etch * 0.55) + np.array([0.95, 0.96, 1.0]) * etch * 0.55
+
+    # fireflies: soft warm glows drifting over the terrace and the pool
+    core = Image.new("L", (S, S), 0)
+    dc = ImageDraw.Draw(core)
+    for _ in range(55):
+        x, y, r = rng.uniform(150, 1790), rng.uniform(900, 1700), rng.uniform(2.5, 6)
+        dc.ellipse([x - r, y - r, x + r, y + r], fill=int(rng.uniform(170, 255)))
+    halo = np.asarray(core.filter(ImageFilter.GaussianBlur(14)), np.float32) / 255 * 3.5
+    dot = np.asarray(core.filter(ImageFilter.GaussianBlur(1.5)), np.float32) / 255
+    glow = np.clip(halo * 0.6 + dot, 0, 1)[..., None]
+    return np.clip(a + glow * np.array([1.0, 0.9, 0.55]) * 0.85, 0, 1)
+
+
 def piscine(a, rng, sort_area, smear_area, keep=None, tones=PASTELS, n_big=3, n_small=6, mode="veils"):
     """The #40 recipe."""
     a = m.grade(a, 1.15, 1.3)
@@ -256,6 +312,14 @@ if __name__ == "__main__":
         save(out, f"40-piscine-lumiere-{k + 1}", 40, "LUMIÈRE", "PALM SPRINGS", "33.82° N  116.54° W")
         lum_items.append((f"LUMIÈRE {k + 1}", out))
     sheet(lum_items, "planche-lumiere-40.jpg", 3)
+
+    # 1f. FÉERIE: LUMIÈRE + smoked glass, etched curls and fireflies
+    fee = []
+    for k, (_, img) in enumerate(lum_items):
+        out = feerie(img, np.random.default_rng(70 + k))
+        save(out, f"40-piscine-feerie-{k + 1}", 40, "FÉERIE", "PALM SPRINGS", "33.82° N  116.54° W")
+        fee.append((f"FÉERIE {k + 1}", out))
+    sheet(fee, "planche-feerie-40.jpg", 3)
 
     # 2. the series
     series, multis = [], []
