@@ -54,6 +54,57 @@ def grid(a, rng, tones, cell=150, share=0.4, op=(0.3, 0.6)):
     return a
 
 
+# the fence between the terrace and the pool in #40 (full-frame pixel polygon)
+FENCE = [(915, 800), (1800, 828), (1800, 1082), (1530, 1076), (918, 1232)]
+PANES = [(255, 90, 60), (255, 210, 80), (40, 190, 175), (230, 60, 160), (120, 220, 120),
+         (60, 110, 240), (255, 140, 30), (150, 110, 220), (255, 150, 190), (20, 150, 90),
+         (214, 32, 38), (80, 200, 220)]
+
+
+def panes(clean, f=3, dark=0.24, min_area=40):
+    """Label the panes of the fence: light regions inside FENCE split by the black frame.
+
+    Returns an S x S int map (0 = not a pane, k = pane k)."""
+    poly = Image.new("L", (S, S), 0)
+    ImageDraw.Draw(poly).polygon(FENCE, fill=1)
+    inside = np.asarray(poly, bool)
+    light = (la.lum(clean) > dark) & inside
+    g = light[::f, ::f]
+    lab = np.zeros(g.shape, np.int32)
+    n = 0
+    for y0, x0 in zip(*np.nonzero(g)):
+        if lab[y0, x0]:
+            continue
+        n += 1
+        stack, pix = [(y0, x0)], []
+        lab[y0, x0] = n
+        while stack:
+            y, x = stack.pop()
+            pix.append((y, x))
+            for yy, xx in ((y + 1, x), (y - 1, x), (y, x + 1), (y, x - 1)):
+                if 0 <= yy < g.shape[0] and 0 <= xx < g.shape[1] and g[yy, xx] and not lab[yy, xx]:
+                    lab[yy, xx] = n
+                    stack.append((yy, xx))
+        if len(pix) < min_area:
+            for y, x in pix:
+                lab[y, x] = -1
+    lab[lab < 0] = 0
+    full = np.repeat(np.repeat(lab, f, 0), f, 1)[:S, :S]
+    return np.where(light, full, 0)
+
+
+def colour_panes(a, labels, rng, op=0.62):
+    a = a.copy()
+    ids = [k for k in np.unique(labels) if k]
+    order = rng.permutation(len(PANES))
+    L = la.lum(a)[..., None]
+    for i, k in enumerate(ids):
+        m_ = m.blur((labels == k).astype(np.float32), 1.0)[..., None] * op
+        c = np.array(PANES[order[i % len(PANES)]], np.float32) / 255
+        a = a * (1 - m_) + np.clip(c * (0.45 + 0.8 * L), 0, 1) * m_
+    return a
+
+
 def piscine(a, rng, sort_area, smear_area, keep=None, tones=PASTELS, n_big=3, n_small=6, mode="veils"):
     """The #40 recipe."""
     a = m.grade(a, 1.15, 1.3)
@@ -133,6 +184,21 @@ if __name__ == "__main__":
         save(a, f"40-piscine-{slug}", 40, "PISCINE", "PALM SPRINGS", "33.82° N  116.54° W")
         items.append((label, a))
     sheet(items, "planche-multicolore-40.jpg", 4)
+
+    # 1c. the fence panes, each in its own colour
+    clean = m.grade(src.copy(), 1.15, 1.3)
+    labels = panes(clean)
+    print("panes:", len(np.unique(labels)) - 1)
+    base = piscine(src.copy(), np.random.default_rng(4001), (0.5, 0.55, 1, 0.85), (0, 0.2, 1, 0.7))
+    plain = m.grade(src.copy(), 1.15, 1.3)
+    m.pixel_sort(plain, np.random.default_rng(4001), 12, 0.55, 0.95, vertical=False, area=(0.5, 0.55, 1, 0.85))
+    vit = []
+    for label, img, seed in (("VITRAIL + VOILES", base, 7), ("VITRAIL", plain, 7), ("VITRAIL II", plain, 8)):
+        out = la.grain(colour_panes(img, labels, np.random.default_rng(seed)), np.random.default_rng(seed), 0.02)
+        slug = label.lower().replace(" + ", "-").replace(" ", "-")
+        save(out, f"40-piscine-{slug}", 40, "PISCINE", "PALM SPRINGS", "33.82° N  116.54° W")
+        vit.append((label, out))
+    sheet(vit, "planche-vitrail-40.jpg", 3)
 
     # 2. the series
     series, multis = [], []
