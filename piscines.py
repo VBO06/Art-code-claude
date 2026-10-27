@@ -105,6 +105,47 @@ def colour_panes(a, labels, rng, op=0.62):
     return a
 
 
+def pane_layer(labels, rng):
+    """Colour layer (S x S x 3) and coverage (S x S) of the coloured panes."""
+    col = np.zeros((S, S, 3), np.float32)
+    order = rng.permutation(len(PANES))
+    for i, k in enumerate(k for k in np.unique(labels) if k):
+        col[labels == k] = np.array(PANES[order[i % len(PANES)]], np.float32) / 255
+    return col, (labels > 0).astype(np.float32)
+
+
+def lumiere(photo, labels, rng, axis=1150, light=0.75, water=0.45):
+    """The panes as stained glass: their colours fall as light on the terrace
+    and ripple as a reflection in the pool."""
+    col, cov = pane_layer(labels, rng)
+    a = colour_panes(photo, labels, np.random.default_rng(int(rng.integers(1 << 30))))
+    L = la.lum(photo)
+    rows = np.clip(2 * axis - np.arange(S), 0, S - 1)
+    # light on the floor: mirrored, sheared toward the camera, stretched and soft
+    yy = np.arange(S)[:, None]
+    xx = np.arange(S)[None, :]
+    src_y = np.clip(axis - (yy - axis) / 1.6, 0, S - 1).astype(int)
+    src_x = np.clip(xx + ((yy - axis) * 0.35).astype(int), 0, S - 1)
+    below = (yy > axis).astype(np.float32)
+    pc, pa = col[src_y, src_x], cov[src_y, src_x] * below
+    pc = la.blur_rgb(pc * pa[..., None], 14)
+    pa = m.blur(pa, 14)
+    floor = np.clip((L - 0.55) * 3, 0, 1) * (1 - cov)
+    tint = np.where(pa[..., None] > 1e-3, pc / np.maximum(pa[..., None], 1e-3), 0)
+    k = (pa * floor * light)[..., None]
+    a = a * (1 - k) + a * np.clip(tint * 1.25, 0, 1.2) * k
+    # reflection in the pool, with ripples
+    R, G, B = photo[..., 0], photo[..., 1], photo[..., 2]
+    pool = m.blur(((B - R > 0.25) & (L > 0.45) & (yy > axis - 80)).astype(np.float32), 3)
+    rc, ra = col[rows], cov[rows]
+    ripple = (np.sin(np.arange(S) / 6.0) * 9 + np.sin(np.arange(S) / 17.0) * 14).astype(int)
+    rc = np.stack([np.roll(rc[y], ripple[y], 0) for y in range(S)])
+    ra = np.stack([np.roll(ra[y], ripple[y], 0) for y in range(S)])
+    w = (m.blur(ra, 3) * pool * water)[..., None]
+    a = a * (1 - w) + np.clip(rc * (0.5 + 0.7 * L[..., None]), 0, 1) * w
+    return np.clip(a, 0, 1)
+
+
 def piscine(a, rng, sort_area, smear_area, keep=None, tones=PASTELS, n_big=3, n_small=6, mode="veils"):
     """The #40 recipe."""
     a = m.grade(a, 1.15, 1.3)
@@ -207,6 +248,14 @@ if __name__ == "__main__":
         save(out, f"40-piscine-originale-{k + 1}", 40, "PISCINE", "PALM SPRINGS", "33.82° N  116.54° W")
         orig.append((f"ORIGINALE {k + 1}", out))
     sheet(orig, "planche-originale-40.jpg", 3)
+
+    # 1e. LUMIÈRE: the stained glass lets the sun through
+    lum_items = []
+    for k, seed in enumerate((7, 8, 9)):
+        out = lumiere(src.copy(), labels, np.random.default_rng(seed))
+        save(out, f"40-piscine-lumiere-{k + 1}", 40, "LUMIÈRE", "PALM SPRINGS", "33.82° N  116.54° W")
+        lum_items.append((f"LUMIÈRE {k + 1}", out))
+    sheet(lum_items, "planche-lumiere-40.jpg", 3)
 
     # 2. the series
     series, multis = [], []
