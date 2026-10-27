@@ -14,6 +14,9 @@ import mix as m
 S = la.S
 OUT = os.path.join(la.ROOT, "output", "piscines")
 PASTELS = [(255, 150, 190), (255, 210, 80), (80, 200, 220), (255, 255, 255)]
+RAINBOW = [(255, 150, 190), (255, 210, 80), (80, 200, 220), (255, 255, 255), (255, 90, 60),
+           (255, 140, 30), (120, 220, 120), (20, 150, 90), (60, 110, 240), (150, 110, 220),
+           (230, 60, 160), (200, 185, 235), (40, 190, 175), (214, 32, 38)]
 
 
 def load_jpg(path, box=(0, 0, 1, 1)):
@@ -37,13 +40,27 @@ def censor(a, boxes, b=16):
     return a
 
 
-def piscine(a, rng, sort_area, smear_area, keep=None):
+def grid(a, rng, tones, cell=150, share=0.4, op=(0.3, 0.6)):
+    """Cut the image into squares; a share of them gets a translucent colour."""
+    a = a.copy()
+    for y in range(0, S, cell):
+        for x in range(0, S, cell):
+            if rng.random() < share:
+                c = np.array(tones[int(rng.integers(len(tones)))], np.float32) / 255
+                o = rng.uniform(*op)
+                a[y:y + cell, x:x + cell] = a[y:y + cell, x:x + cell] * (1 - o) + c * o
+    a[::cell] *= 0.85                                   # thin seams between squares
+    a[:, ::cell] *= 0.85
+    return a
+
+
+def piscine(a, rng, sort_area, smear_area, keep=None, tones=PASTELS, n_big=3, n_small=6, mode="veils"):
     """The #40 recipe."""
     a = m.grade(a, 1.15, 1.3)
     clean = a.copy()
     m.pixel_sort(a, rng, 12, 0.55, 0.95, vertical=False, area=sort_area)
     m.smear(a, rng, 6, area=smear_area)
-    a = la.veils(a, rng, PASTELS)
+    a = grid(a, rng, tones) if mode == "grid" else la.veils(a, rng, tones, n_big, n_small)
     if keep:
         ys, xs = slice(int(keep[1] * S), int(keep[3] * S)), slice(int(keep[0] * S), int(keep[2] * S))
         a[ys, xs] = clean[ys, xs]
@@ -104,11 +121,29 @@ if __name__ == "__main__":
         variants.append((f"COMPOSITION {k + 1}", a))
     sheet(variants, "planche-compositions-40.jpg", 3)
 
+    # 1b. multicolour versions of #40
+    multi = [("MULTICOLORE", dict(tones=RAINBOW, n_big=4, n_small=10)),
+             ("MULTICOLORE DENSE", dict(tones=RAINBOW, n_big=7, n_small=22)),
+             ("CARRÉS", dict(tones=RAINBOW, n_big=0, n_small=40)),
+             ("GRILLE", dict(tones=RAINBOW, mode="grid"))]
+    items = []
+    for k, (label, kw) in enumerate(multi):
+        a = piscine(src.copy(), np.random.default_rng(4001), (0.5, 0.55, 1, 0.85), (0, 0.2, 1, 0.7), **kw)
+        slug = label.lower().replace(" ", "-").replace("é", "e")
+        save(a, f"40-piscine-{slug}", 40, "PISCINE", "PALM SPRINGS", "33.82° N  116.54° W")
+        items.append((label, a))
+    sheet(items, "planche-multicolore-40.jpg", 4)
+
     # 2. the series
-    series = []
+    series, multis = [], []
     for num, stem, title, place, coords, load, sort_area, smear_area, keep in PIECES:
         a = piscine(load(), np.random.default_rng(num * 101), sort_area, smear_area, keep)
         save(a, f"{num}-{stem}", num, title, place, coords)
         series.append((f"#{num} {title}", a))
+        b = piscine(load(), np.random.default_rng(num * 101), sort_area, smear_area, keep,
+                    tones=RAINBOW, n_big=4, n_small=10)
+        save(b, f"{num}-{stem}-multicolore", num, title, place, coords)
+        multis.append((f"#{num} {title}", b))
     sheet(series, "planche-serie.jpg", 3)
+    sheet(multis, "planche-serie-multicolore.jpg", 3)
     print(OUT)
